@@ -1,2 +1,2 @@
 # replicon-cli
-A simple command-line interface for replicon.com
+A simple command-line interface and API wrapper for filling in replicon.com timesheets.

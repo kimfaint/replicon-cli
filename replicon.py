@@ -408,7 +408,8 @@ class Timesheet:
                 "bankedTime": None
             }
         }
-        rows = {}
+        rows = []
+        rn = 0
 
         for a in self.timeAllocations:
             billingRate = {
@@ -416,34 +417,43 @@ class Timesheet:
                 'name': 'Project Rate',
                 'uri': 'urn:replicon:project-specific-billing-rate'
             }
-            billingRate = None
-            customFieldValues = []
-            #if fieldset:
-            #    field, value = fieldset
-            #    customField = {
-            #        'customField': {
-            #                "uri": field.uri
-            #            },
-            #        'text': value
-            #    }
-            #    customFieldValues.append(customField)
+            # TODO: make this hack cleaner/configurable
+            if '3G' in a.project.name:
+                billingRate = None
+            if 'INTERNAL' in a.project.name:
+                billingRate = None
+            
             cell = {
                 'date': date_to_dict(a.date),
                 'duration': {
-                    #'hours': 0,
-                    #'minutes': 0,
                     'seconds': a.duration_seconds
                 },
                 'comments': a.comments,
-                'customFieldValues' : customFieldValues
+                'customFieldValues' : a.customFieldValues
             }
             task = None
             if a.task:
                 task = { "uri": a.task.uri }
-            if a.rowkey in rows:
-                rows[a.rowkey]['cells'].append(cell)
-            else:
-                rows[a.rowkey] = {
+
+            in_cell = False
+            for row in rows:
+                if((row['project']['uri'] == a.project.uri) and (row['task'] == task)):
+                    cell_cfv_match = True
+                    for xcell in row['cells']:
+                        if xcell['customFieldValues'] != a.customFieldValues:
+                            cell_cfv_match = False
+                    has_cell_on_date = False
+                    for xcell in row["cells"]:
+                        if xcell['date'] == cell['date']:
+                            has_cell_on_date = True
+                    if cell_cfv_match and not has_cell_on_date:
+                        row['cells'].append(cell)
+                        in_cell = True
+                        break
+
+            if not in_cell:
+                rn += 1
+                new_row = {
                     "target": None,
                     "project": {
                         "uri": a.project.uri
@@ -453,8 +463,12 @@ class Timesheet:
                     "activity": None,
                     "customFieldValues": [],
                     "cells": [ cell ]
-               }
-            data["timesheet"]["rows"] = [rows[k] for k in rows]
+                }
+                rows.append(new_row)
+               
+            rows.sort()
+            data["timesheet"]["rows"] = rows
+
         return data
 
     def book(self, date, project, task, duration, comment, fieldset):
@@ -463,24 +477,39 @@ class Timesheet:
             project = project.json
         if task:
             task = task.json
+        customFieldValues = []
+        if fieldset:
+            field, value = fieldset
+            customField = {
+                'customField': {
+                        "uri": field.uri
+                    },
+                'text': value
+            }
+            customFieldValues.append(customField)
         ta = {
             'date': date_to_dict(date),
             'comments': comment,
             'duration': {'hours':0, 'minutes': 0, 'seconds': duration},
             'project': project,
             'task': task,
-            'customFieldValues': []
+            'customFieldValues': customFieldValues
         }
+
+        # Check if a similar timeAllocation exists
         updated = False
         for tb in self.timeAllocations:
             if tb.same_fields_as(ta):
+                # If so just extend the duration
                 tb.duration_seconds += duration
                 updated = True
                 break
         if not updated:
+            # Else create new timeAllocation
             self.timeAllocations.append(TimesheetAllocation(ta))
 
     def put(self):
+        pprint(self.put_json())
         self.replicon.putTimesheet(self.put_json())
 
     def clear(self):
@@ -491,7 +520,7 @@ class TimesheetAllocation(object):
 
     def same_fields_as(self, json):
         same = True
-        fields = ['date', 'project', 'task', 'customFieldValues']
+        fields = ['date', 'project', 'task', 'comments', 'customFieldValues']
         for f in fields:
             if json[f] != self.json[f]:
                 same = False
@@ -515,16 +544,13 @@ class TimesheetAllocation(object):
         if json['task']:
             self.task = Task(json)
 
-        #TODO generecise
-        self.ticket_num = ''
-        for field in json['customFieldValues']:
-            if field['customField']['name'] == 'Ticket #' and field['text']:
-                self.ticket_num = field['text']
+        self.customFieldValues = json['customFieldValues']
 
-        key = self.project.uri
-        if self.task:
-            key += self.task.uri
-        self.rowkey = key
+        #TODO generecise
+        #self.ticket_num = ''
+        #for field in json['customFieldValues']:
+        #    if field['customField']['name'] == 'Ticket #' and field['text']:
+        #        self.ticket_num = field['text']
 
     def __repr__(self):
         if self.task:

@@ -547,10 +547,10 @@ class TimesheetAllocation(object):
         self.customFieldValues = json['customFieldValues']
 
         #TODO generecise
-        #self.ticket_num = ''
-        #for field in json['customFieldValues']:
-        #    if field['customField']['name'] == 'Ticket #' and field['text']:
-        #        self.ticket_num = field['text']
+        self.ticket_num = ''
+        for field in json['customFieldValues']:
+            if 'name' in field['customField'] and field['customField']['name'] == 'Ticket #' and field['text']:
+                self.ticket_num = field['text']
 
     def __repr__(self):
         if self.task:
